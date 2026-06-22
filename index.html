@@ -116,19 +116,22 @@
         canvas.width = 437;
         canvas.height = 727;
 
-        // --- SONS ---
+        // --- SONS (Sintetizados em Base64 para rodar direto sem precisar de arquivos externos) ---
         const jumpSound = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAQA");
         jumpSound.volume = 0.4;
 
+        const hitSound = new Audio("data:audio/wav;base64,UklGRkYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAMf/xP/D/8L/");
+        hitSound.volume = 0.5;
+
         // --- IMAGENS ---
         const birdImg = new Image();
-        birdImg.src = 'kimi.png'; 
+        birdImg.src = 'kimi.png'; // <- Alterado conforme solicitado!
 
         // --- VARIÁVEIS DO JOGO ---
         let bird = { x: 50, y: 300, w: 44, h: 34, velocity: 0, gravity: 0.4, jump: -7.5 };
         let pipes = [];
         let clouds = []; // Nuvens em background
-        let sandGrains = []; // Grãos de areia estáticos ou decorativos
+        let sandGrains = []; // Grãos de areia decorativos
         let score = 0;
         let gameOver = false;
         let gameStarted = false;
@@ -256,7 +259,7 @@
                 activeDebuffs.push(debuffRotation[rotationIndex]);
                 rotationIndex++;
             } else {
-                // Modo Caos Ativado!
+                // Modo Caos Ativado! (Modo Hell)
                 isChaosMode = true;
                 container.classList.add('hell-mode');
                 modeAlert.style.display = 'block';
@@ -316,13 +319,15 @@
             bird.velocity += bird.gravity;
             bird.y += bird.velocity;
 
+            // 1. Colisão com o teto ou chão
             if (bird.y + bird.h > canvas.height - 112 || bird.y < 0) {
+                if (!gameOver) hitSound.play().catch(() => {}); // Toca o som de erro
                 gameOver = true;
             }
 
             // Atualizar Nuvens
             clouds.forEach(cloud => {
-                cloud.x -= isChaosMode ? cloud.speed * 2.5 : cloud.speed; // No modo caos, nuvens correm mais rápido apocalipticamente
+                cloud.x -= isChaosMode ? cloud.speed * 2.5 : cloud.speed; 
                 if (cloud.x + 80 * cloud.scale < 0) {
                     cloud.x = canvas.width + 20;
                     cloud.y = 40 + Math.random() * 120;
@@ -344,11 +349,13 @@
             pipes.forEach((pipe, index) => {
                 pipe.x -= currentSpeed;
 
+                // 2. Colisão com os canos
                 if (
                     bird.x + bird.w > pipe.x &&
                     bird.x < pipe.x + pipeWidth &&
                     (bird.y < pipe.top || bird.y + bird.h > canvas.height - 112 - pipe.bottom)
                 ) {
+                    if (!gameOver) hitSound.play().catch(() => {}); // Toca o som de erro
                     gameOver = true;
                 }
 
@@ -380,9 +387,9 @@
 
             // Fundo dinâmico baseado no modo ativo
             if (isChaosMode) {
-                ctx.fillStyle = '#4a0e17'; // Fundo Vermelho Infernal
+                ctx.fillStyle = '#4a0e17'; 
             } else {
-                ctx.fillStyle = '#70c5ce'; // Azul Clássico
+                ctx.fillStyle = '#70c5ce'; 
             }
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -401,8 +408,8 @@
             // Canos
             pipes.forEach(pipe => {
                 if (isChaosMode) {
-                    ctx.fillStyle = '#1f0307'; // Canos queimados
-                    ctx.strokeStyle = '#b81d24'; // Bordas vermelhas brilhantes
+                    ctx.fillStyle = '#1f0307'; 
+                    ctx.strokeStyle = '#b81d24'; 
                 } else {
                     ctx.fillStyle = '#73bf2e'; 
                     ctx.strokeStyle = '#538021';
@@ -420,9 +427,9 @@
 
             // Chão decorado
             if (isChaosMode) {
-                ctx.fillStyle = '#5e483a'; // Areia escura/cinzas
+                ctx.fillStyle = '#5e483a'; 
                 ctx.fillRect(0, canvas.height - 112, canvas.width, 112);
-                ctx.fillStyle = '#210804'; // Grama morta
+                ctx.fillStyle = '#210804'; 
                 ctx.fillRect(0, canvas.height - 112, canvas.width, 12);
             } else {
                 ctx.fillStyle = '#ded895'; 
