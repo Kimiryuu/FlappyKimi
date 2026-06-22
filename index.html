@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>flap Kimi - Hell Edition</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            background-color: #111;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            max-width: 437px;
+            height: 100vh;
+            max-height: 727px;
+            overflow: hidden;
+            background: #70c5ce;
+            transition: background-color 1s ease;
+        }
+
+        /* Modo Hell / Apocalíptico */
+        #game-container.hell-mode {
+            background: #4a0e17 !important; /* Vermelho escuro apocalíptico */
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* --- ESTILOS DOS DEBUFFS (CSS) --- */
+        
+        /* Debuff 2: Tela Tremendo */
+        .shake {
+            animation: shakeAnim 0.1s infinite alternate;
+        }
+        @keyframes shakeAnim {
+            0% { transform: translate(2px, 1px) rotate(0deg); }
+            100% { transform: translate(-1px, -2px) rotate(1deg); }
+        }
+
+        /* Debuff 4: Tela Piscante */
+        .flash {
+            animation: flashAnim 0.3s infinite alternate;
+        }
+        @keyframes flashAnim {
+            0% { opacity: 1; }
+            100% { opacity: 0.4; }
+        }
+
+        /* Indicador de Debuff na Tela */
+        #debuff-alert {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ff3333;
+            font-weight: bold;
+            font-size: 16px;
+            text-align: center;
+            text-shadow: 2px 2px #000;
+            z-index: 10;
+            display: none;
+            width: 90%;
+        }
+
+        #mode-alert {
+            position: absolute;
+            top: 130px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ffcc00;
+            font-weight: bold;
+            font-size: 22px;
+            text-align: center;
+            text-shadow: 3px 3px #000;
+            z-index: 9;
+            display: none;
+            animation: flashAnim 0.5s infinite alternate;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="debuff-alert">DEBUFF ATIVO!</div>
+        <div id="mode-alert">MODO HELL</div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        const container = document.getElementById('game-container');
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const debuffAlert = document.getElementById('debuff-alert');
+        const modeAlert = document.getElementById('mode-alert');
+
+        // Ajuste de resolução interna do Canvas
+        canvas.width = 437;
+        canvas.height = 727;
+
+        // --- SONS ---
+        const jumpSound = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAQA");
+        jumpSound.volume = 0.4;
+
+        // --- IMAGENS ---
+        const birdImg = new Image();
+        birdImg.src = 'kimi.png'; 
+
+        // --- VARIÁVEIS DO JOGO ---
+        let bird = { x: 50, y: 300, w: 44, h: 34, velocity: 0, gravity: 0.4, jump: -7.5 };
+        let pipes = [];
+        let clouds = []; // Nuvens em background
+        let sandGrains = []; // Grãos de areia estáticos ou decorativos
+        let score = 0;
+        let gameOver = false;
+        let gameStarted = false;
+        let frameCount = 0;
+        let baseSpeed = 2.5;
+        let currentSpeed = baseSpeed;
+
+        // Configuração dos Canos - Espaço aumentado em 15% (150 * 1.15 = ~173)
+        const pipeWidth = 65;
+        const pipeGap = 173; 
+        const pipeInterval = 110;
+
+        // --- SISTEMA DE DEBUFFS ---
+        let activeDebuffs = [];
+        let debuffTimer = null;
+        let rotationIndex = 0; 
+        const debuffRotation = [1, 2, 4, 5]; 
+        let speedDebuffUsed = false;
+        let lastTriggeredScore = 0;
+        let isChaosMode = false;
+
+        const debuffNames = {
+            1: "GRAVIDADE AUMENTADA!",
+            2: "TERREMOTO!",
+            3: "HIPER VELOCIDADE! (Permanente)",
+            4: "EPILEPSIA! (Piscando)",
+            5: "TELA PARALISADA!"
+        };
+
+        let isFrozen = false;
+
+        // Inicializar Nuvens de Fundo
+        function initClouds() {
+            clouds = [
+                { x: 50, y: 80, speed: 0.2, scale: 1.2 },
+                { x: 220, y: 140, speed: 0.15, scale: 0.9 },
+                { x: 380, y: 60, speed: 0.25, scale: 1.1 }
+            ];
+        }
+
+        // Inicializar Grãos de Areia decorativos para o chão
+        function initSandGrains() {
+            sandGrains = [];
+            const groundY = canvas.height - 100;
+            for (let i = 0; i < 60; i++) {
+                sandGrains.push({
+                    x: Math.random() * canvas.width,
+                    y: groundY + Math.random() * 95,
+                    size: Math.random() * 2 + 1,
+                    color: Math.random() > 0.5 ? '#c2b978' : '#eee59e'
+                });
+            }
+        }
+
+        initClouds();
+        initSandGrains();
+
+        // --- EVENTOS (PC e Celular) ---
+        function handleAction() {
+            if (gameOver) {
+                resetGame();
+                return;
+            }
+            if (!gameStarted) {
+                gameStarted = true;
+            }
+            
+            jumpSound.currentTime = 0;
+            jumpSound.play().catch(() => {}); 
+
+            bird.velocity = bird.jump;
+        }
+
+        window.addEventListener('keydown', (e) => { if(e.code === 'Space') handleAction(); });
+        container.addEventListener('touchstart', (e) => { e.preventDefault(); handleAction(); }, {passive: false});
+        container.addEventListener('mousedown', handleAction);
+
+        // --- LOGICA DO JOGO ---
+        
+        function applyDebuffEffects() {
+            bird.gravity = 0.4;
+            bird.jump = -7.5;
+            container.classList.remove('shake', 'flash');
+            isFrozen = false;
+
+            if (activeDebuffs.length === 0) {
+                debuffAlert.style.display = 'none';
+                return;
+            }
+
+            let text = "DEBUFF: " + activeDebuffs.map(d => debuffNames[d]).join(" + ");
+            debuffAlert.innerText = text;
+            debuffAlert.style.display = 'block';
+
+            activeDebuffs.forEach(d => {
+                if (d === 1) {
+                    bird.gravity = 0.8; 
+                    bird.jump = -9.5;   
+                }
+                if (d === 2) container.classList.add('shake');
+                if (d === 4) container.classList.add('flash');
+                if (d === 5) {
+                    if (frameCount % 12 < 4) isFrozen = true; 
+                }
+            });
+        }
+
+        function checkDebuffTrigger() {
+            if (score > 0 && score % 50 === 0 && score !== lastTriggeredScore) {
+                lastTriggeredScore = score;
+                triggerNextDebuff();
+            }
+            
+            if (score === 300 && !speedDebuffUsed) {
+                speedDebuffUsed = true;
+                activateDebuff(3);
+            }
+        }
+
+        function triggerNextDebuff() {
+            clearTimeout(debuffTimer);
+            activeDebuffs = [];
+
+            if (rotationIndex < debuffRotation.length) {
+                activeDebuffs.push(debuffRotation[rotationIndex]);
+                rotationIndex++;
+            } else {
+                // Modo Caos Ativado!
+                isChaosMode = true;
+                container.classList.add('hell-mode');
+                modeAlert.style.display = 'block';
+
+                let available = [1, 2, 4, 5];
+                let first = available.splice(Math.floor(Math.random() * available.length), 1)[0];
+                let second = available[Math.floor(Math.random() * available.length)];
+                activeDebuffs.push(first, second);
+            }
+
+            debuffTimer = setTimeout(() => {
+                activeDebuffs = [];
+                applyDebuffEffects();
+            }, 10000);
+        }
+
+        function activateDebuff(id) {
+            if (id === 3) {
+                currentSpeed = baseSpeed * 1.5; 
+                activeDebuffs.push(3);
+                setTimeout(() => {
+                    activeDebuffs = activeDebuffs.filter(d => d !== 3);
+                }, 10000);
+            }
+        }
+
+        function resetGame() {
+            bird.y = 300;
+            bird.velocity = 0;
+            bird.gravity = 0.4;
+            bird.jump = -7.5;
+            pipes = [];
+            score = 0;
+            lastTriggeredScore = 0;
+            currentSpeed = baseSpeed;
+            rotationIndex = 0;
+            speedDebuffUsed = false;
+            activeDebuffs = [];
+            gameOver = false;
+            gameStarted = false;
+            isChaosMode = false;
+            container.classList.remove('hell-mode', 'shake', 'flash');
+            isFrozen = false;
+            debuffAlert.style.display = 'none';
+            modeAlert.style.display = 'none';
+            initClouds();
+        }
+
+        function update() {
+            if (!gameStarted || gameOver) return;
+
+            checkDebuffTrigger();
+            applyDebuffEffects();
+
+            if (isFrozen) return; 
+
+            bird.velocity += bird.gravity;
+            bird.y += bird.velocity;
+
+            if (bird.y + bird.h > canvas.height - 112 || bird.y < 0) {
+                gameOver = true;
+            }
+
+            // Atualizar Nuvens
+            clouds.forEach(cloud => {
+                cloud.x -= isChaosMode ? cloud.speed * 2.5 : cloud.speed; // No modo caos, nuvens correm mais rápido apocalipticamente
+                if (cloud.x + 80 * cloud.scale < 0) {
+                    cloud.x = canvas.width + 20;
+                    cloud.y = 40 + Math.random() * 120;
+                }
+            });
+
+            if (frameCount % pipeInterval === 0) {
+                let minHeight = 50;
+                let maxHeight = canvas.height - 112 - pipeGap - minHeight;
+                let topHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1) + minHeight);
+                pipes.push({
+                    x: canvas.width,
+                    top: topHeight,
+                    bottom: canvas.height - 112 - (topHeight + pipeGap),
+                    passed: false
+                });
+            }
+
+            pipes.forEach((pipe, index) => {
+                pipe.x -= currentSpeed;
+
+                if (
+                    bird.x + bird.w > pipe.x &&
+                    bird.x < pipe.x + pipeWidth &&
+                    (bird.y < pipe.top || bird.y + bird.h > canvas.height - 112 - pipe.bottom)
+                ) {
+                    gameOver = true;
+                }
+
+                if (!pipe.passed && pipe.x + pipeWidth / 2 < bird.x) {
+                    pipe.passed = true;
+                    score++;
+                }
+
+                if (pipe.x + pipeWidth < 0) {
+                    pipes.splice(index, 1);
+                }
+            });
+        }
+
+        // Desenhar uma nuvem pixelizada simples
+        function drawCloud(x, y, scale) {
+            ctx.fillStyle = isChaosMode ? 'rgba(120, 40, 50, 0.6)' : 'rgba(255, 255, 255, 0.75)';
+            ctx.beginPath();
+            ctx.rect(x, y, 50 * scale, 16 * scale);
+            ctx.rect(x + 10 * scale, y - 10 * scale, 30 * scale, 10 * scale);
+            ctx.rect(x + 5 * scale, y + 10 * scale, 40 * scale, 8 * scale);
+            ctx.fill();
+        }
+
+        function draw() {
+            if (isFrozen) return; 
+
+            frameCount++;
+
+            // Fundo dinâmico baseado no modo ativo
+            if (isChaosMode) {
+                ctx.fillStyle = '#4a0e17'; // Fundo Vermelho Infernal
+            } else {
+                ctx.fillStyle = '#70c5ce'; // Azul Clássico
+            }
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Nuvens/Cenário de fundo
+            if (isChaosMode) {
+                ctx.fillStyle = '#2b070c';
+                ctx.fillRect(0, canvas.height - 140, canvas.width, 28);
+            } else {
+                ctx.fillStyle = '#4ec0ca';
+                ctx.fillRect(0, canvas.height - 140, canvas.width, 28);
+            }
+
+            // Renderizar as Nuvens
+            clouds.forEach(c => drawCloud(c.x, c.y, c.scale));
+
+            // Canos
+            pipes.forEach(pipe => {
+                if (isChaosMode) {
+                    ctx.fillStyle = '#1f0307'; // Canos queimados
+                    ctx.strokeStyle = '#b81d24'; // Bordas vermelhas brilhantes
+                } else {
+                    ctx.fillStyle = '#73bf2e'; 
+                    ctx.strokeStyle = '#538021';
+                }
+                ctx.lineWidth = 3;
+
+                // Cano Superior
+                ctx.fillRect(pipe.x, 0, pipeWidth, pipe.top);
+                ctx.strokeRect(pipe.x, -5, pipeWidth, pipe.top + 5);
+
+                // Cano Inferior
+                ctx.fillRect(pipe.x, canvas.height - 112 - pipe.bottom, pipeWidth, pipe.bottom);
+                ctx.strokeRect(pipe.x, canvas.height - 112 - pipe.bottom, pipeWidth, pipe.bottom + 5);
+            });
+
+            // Chão decorado
+            if (isChaosMode) {
+                ctx.fillStyle = '#5e483a'; // Areia escura/cinzas
+                ctx.fillRect(0, canvas.height - 112, canvas.width, 112);
+                ctx.fillStyle = '#210804'; // Grama morta
+                ctx.fillRect(0, canvas.height - 112, canvas.width, 12);
+            } else {
+                ctx.fillStyle = '#ded895'; 
+                ctx.fillRect(0, canvas.height - 112, canvas.width, 112);
+                ctx.fillStyle = '#224d19'; 
+                ctx.fillRect(0, canvas.height - 112, canvas.width, 12);
+            }
+
+            // Desenhar os grãos de areia
+            sandGrains.forEach(grain => {
+                ctx.fillStyle = isChaosMode ? (Math.random() > 0.5 ? '#3b2b22' : '#241a14') : grain.color;
+                ctx.fillRect(grain.x, grain.y, grain.size, grain.size);
+            });
+
+            // Personagem (Passarinho Flap Kimi)
+            ctx.save();
+            let rotation = Math.min(Math.PI / 4, Math.max(-Math.PI / 7, bird.velocity / 12));
+            ctx.translate(bird.x + bird.w/2, bird.y + bird.h/2);
+            ctx.rotate(rotation);
+            
+            if (birdImg.complete && birdImg.naturalWidth !== 0) {
+                ctx.drawImage(birdImg, -bird.w/2, -bird.h/2, bird.w, bird.h);
+            } else {
+                ctx.fillStyle = isChaosMode ? '#ff3333' : '#f7dc6f';
+                ctx.fillRect(-bird.w/2, -bird.h/2, bird.w, bird.h);
+                ctx.fillStyle = '#e67e22';
+                ctx.fillRect(bird.w/4, -bird.h/6, 12, 10);
+            }
+            ctx.restore();
+
+            // Placar de Pontos
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 5;
+            ctx.font = "bold 40px 'Courier New', sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            
+            ctx.strokeText(score, canvas.width / 2, 20);
+            ctx.fillText(score, canvas.width / 2, 20);
+
+            // Telas de Menu/Fim de Jogo
+            if (!gameStarted) {
+                ctx.fillStyle = 'rgba(0,0,0,0.4)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#fff';
+                ctx.font = "bold 28px 'Courier New', sans-serif";
+                ctx.strokeText("FLAP KIMI", canvas.width / 2, canvas.height / 2 - 50);
+                ctx.fillText("FLAP KIMI", canvas.width / 2, canvas.height / 2 - 50);
+                ctx.font = "18px 'Courier New', sans-serif";
+                ctx.fillText("Toque para Iniciar", canvas.width / 2, canvas.height / 2 + 10);
+            }
+
+            if (gameOver) {
+                ctx.fillStyle = 'rgba(0,0,0,0.6)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = isChaosMode ? '#ff3333' : '#fc5a3a';
+                ctx.font = "bold 34px 'Courier New', sans-serif";
+                ctx.strokeText("FIM DE JOGO", canvas.width / 2, canvas.height / 2 - 50);
+                ctx.fillText("FIM DE JOGO", canvas.width / 2, canvas.height / 2 - 50);
+                ctx.fillStyle = '#fff';
+                ctx.font = "18px 'Courier New', sans-serif";
+                ctx.fillText(`Pontuação Final: ${score}`, canvas.width / 2, canvas.height / 2);
+                ctx.fillText("Toque para reiniciar", canvas.width / 2, canvas.height / 2 + 40);
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>
