@@ -36,7 +36,7 @@
 
         /* Modo Hell / Apocalíptico */
         #game-container.hell-mode {
-            background: #4a0e17 !important; /* Vermelho escuro apocalíptico */
+            background: #4a0e17 !important;
         }
 
         canvas {
@@ -46,8 +46,6 @@
         }
 
         /* --- ESTILOS DOS DEBUFFS (CSS) --- */
-        
-        /* Debuff 2: Tela Tremendo */
         .shake {
             animation: shakeAnim 0.1s infinite alternate;
         }
@@ -56,7 +54,6 @@
             100% { transform: translate(-1px, -2px) rotate(1deg); }
         }
 
-        /* Debuff 4: Tela Piscante */
         .flash {
             animation: flashAnim 0.3s infinite alternate;
         }
@@ -65,7 +62,6 @@
             100% { opacity: 0.4; }
         }
 
-        /* Indicador de Debuff na Tela */
         #debuff-alert {
             position: absolute;
             top: 80px;
@@ -112,11 +108,10 @@
         const debuffAlert = document.getElementById('debuff-alert');
         const modeAlert = document.getElementById('mode-alert');
 
-        // Ajuste de resolução interna do Canvas
         canvas.width = 437;
         canvas.height = 727;
 
-        // --- SONS (Sintetizados em Base64 para rodar direto sem precisar de arquivos externos) ---
+        // --- SONS INTEGRADOS (Não precisa de ficheiro mp3 externo) ---
         const jumpSound = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAQA");
         jumpSound.volume = 0.4;
 
@@ -125,13 +120,13 @@
 
         // --- IMAGENS ---
         const birdImg = new Image();
-        birdImg.src = 'kimi.png'; // <- Alterado conforme solicitado!
+        birdImg.src = 'kimi.png';
 
         // --- VARIÁVEIS DO JOGO ---
         let bird = { x: 50, y: 300, w: 44, h: 34, velocity: 0, gravity: 0.4, jump: -7.5 };
         let pipes = [];
-        let clouds = []; // Nuvens em background
-        let sandGrains = []; // Grãos de areia decorativos
+        let clouds = []; 
+        let sandGrains = []; 
         let score = 0;
         let gameOver = false;
         let gameStarted = false;
@@ -139,7 +134,6 @@
         let baseSpeed = 2.5;
         let currentSpeed = baseSpeed;
 
-        // Configuração dos Canos - Espaço aumentado em 15% (150 * 1.15 = ~173)
         const pipeWidth = 65;
         const pipeGap = 173; 
         const pipeInterval = 110;
@@ -163,7 +157,6 @@
 
         let isFrozen = false;
 
-        // Inicializar Nuvens de Fundo
         function initClouds() {
             clouds = [
                 { x: 50, y: 80, speed: 0.2, scale: 1.2 },
@@ -172,7 +165,6 @@
             ];
         }
 
-        // Inicializar Grãos de Areia decorativos para o chão
         function initSandGrains() {
             sandGrains = [];
             const groundY = canvas.height - 100;
@@ -189,19 +181,28 @@
         initClouds();
         initSandGrains();
 
+        // --- FUNÇÃO PARA TOCAR O SOM SEM CONFLITO ---
+        function playSound(audio) {
+            audio.currentTime = 0;
+            audio.play().catch(() => {});
+        }
+
         // --- EVENTOS (PC e Celular) ---
         function handleAction() {
             if (gameOver) {
                 resetGame();
                 return;
             }
+            
+            // Ativa o contexto de som no primeiro clique/toque exigido pelos browsers
             if (!gameStarted) {
                 gameStarted = true;
+                // Executa um play/pause rápido invisível para desbloquear o áudio
+                jumpSound.play().then(() => jumpSound.pause()).catch(() => {});
+                hitSound.play().then(() => hitSound.pause()).catch(() => {});
             }
             
-            jumpSound.currentTime = 0;
-            jumpSound.play().catch(() => {}); 
-
+            playSound(jumpSound);
             bird.velocity = bird.jump;
         }
 
@@ -210,7 +211,6 @@
         container.addEventListener('mousedown', handleAction);
 
         // --- LOGICA DO JOGO ---
-        
         function applyDebuffEffects() {
             bird.gravity = 0.4;
             bird.jump = -7.5;
@@ -259,7 +259,6 @@
                 activeDebuffs.push(debuffRotation[rotationIndex]);
                 rotationIndex++;
             } else {
-                // Modo Caos Ativado! (Modo Hell)
                 isChaosMode = true;
                 container.classList.add('hell-mode');
                 modeAlert.style.display = 'block';
@@ -321,11 +320,10 @@
 
             // 1. Colisão com o teto ou chão
             if (bird.y + bird.h > canvas.height - 112 || bird.y < 0) {
-                if (!gameOver) hitSound.play().catch(() => {}); // Toca o som de erro
+                if (!gameOver) playSound(hitSound); 
                 gameOver = true;
             }
 
-            // Atualizar Nuvens
             clouds.forEach(cloud => {
                 cloud.x -= isChaosMode ? cloud.speed * 2.5 : cloud.speed; 
                 if (cloud.x + 80 * cloud.scale < 0) {
@@ -355,7 +353,7 @@
                     bird.x < pipe.x + pipeWidth &&
                     (bird.y < pipe.top || bird.y + bird.h > canvas.height - 112 - pipe.bottom)
                 ) {
-                    if (!gameOver) hitSound.play().catch(() => {}); // Toca o som de erro
+                    if (!gameOver) playSound(hitSound); 
                     gameOver = true;
                 }
 
@@ -370,7 +368,6 @@
             });
         }
 
-        // Desenhar uma nuvem pixelizada simples
         function drawCloud(x, y, scale) {
             ctx.fillStyle = isChaosMode ? 'rgba(120, 40, 50, 0.6)' : 'rgba(255, 255, 255, 0.75)';
             ctx.beginPath();
@@ -385,7 +382,6 @@
 
             frameCount++;
 
-            // Fundo dinâmico baseado no modo ativo
             if (isChaosMode) {
                 ctx.fillStyle = '#4a0e17'; 
             } else {
@@ -393,7 +389,6 @@
             }
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Nuvens/Cenário de fundo
             if (isChaosMode) {
                 ctx.fillStyle = '#2b070c';
                 ctx.fillRect(0, canvas.height - 140, canvas.width, 28);
@@ -402,10 +397,8 @@
                 ctx.fillRect(0, canvas.height - 140, canvas.width, 28);
             }
 
-            // Renderizar as Nuvens
             clouds.forEach(c => drawCloud(c.x, c.y, c.scale));
 
-            // Canos
             pipes.forEach(pipe => {
                 if (isChaosMode) {
                     ctx.fillStyle = '#1f0307'; 
@@ -416,16 +409,13 @@
                 }
                 ctx.lineWidth = 3;
 
-                // Cano Superior
                 ctx.fillRect(pipe.x, 0, pipeWidth, pipe.top);
                 ctx.strokeRect(pipe.x, -5, pipeWidth, pipe.top + 5);
 
-                // Cano Inferior
                 ctx.fillRect(pipe.x, canvas.height - 112 - pipe.bottom, pipeWidth, pipe.bottom);
                 ctx.strokeRect(pipe.x, canvas.height - 112 - pipe.bottom, pipeWidth, pipe.bottom + 5);
             });
 
-            // Chão decorado
             if (isChaosMode) {
                 ctx.fillStyle = '#5e483a'; 
                 ctx.fillRect(0, canvas.height - 112, canvas.width, 112);
@@ -438,13 +428,11 @@
                 ctx.fillRect(0, canvas.height - 112, canvas.width, 12);
             }
 
-            // Desenhar os grãos de areia
             sandGrains.forEach(grain => {
                 ctx.fillStyle = isChaosMode ? (Math.random() > 0.5 ? '#3b2b22' : '#241a14') : grain.color;
                 ctx.fillRect(grain.x, grain.y, grain.size, grain.size);
             });
 
-            // Personagem (Passarinho Flap Kimi)
             ctx.save();
             let rotation = Math.min(Math.PI / 4, Math.max(-Math.PI / 7, bird.velocity / 12));
             ctx.translate(bird.x + bird.w/2, bird.y + bird.h/2);
@@ -460,7 +448,6 @@
             }
             ctx.restore();
 
-            // Placar de Pontos
             ctx.fillStyle = '#fff';
             ctx.strokeStyle = '#000';
             ctx.lineWidth = 5;
@@ -471,7 +458,6 @@
             ctx.strokeText(score, canvas.width / 2, 20);
             ctx.fillText(score, canvas.width / 2, 20);
 
-            // Telas de Menu/Fim de Jogo
             if (!gameStarted) {
                 ctx.fillStyle = 'rgba(0,0,0,0.4)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
