@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>flap Kimi - Hell Edition</title>
+    <title>flap Kimi - Retro Edition</title>
     <style>
         * {
             box-sizing: border-box;
@@ -34,7 +34,6 @@
             transition: background-color 1s ease;
         }
 
-        /* Modo Hell / Apocalíptico */
         #game-container.hell-mode {
             background: #4a0e17 !important;
         }
@@ -43,10 +42,9 @@
             display: block;
             width: 100%;
             height: 100%;
-            image-rendering: pixelated; /* Melhora performance de renderização em telas mobile */
+            image-rendering: pixelated;
         }
 
-        /* --- ESTILOS DOS DEBUFFS (CSS) --- */
         .shake {
             animation: shakeAnim 0.1s infinite alternate;
         }
@@ -112,9 +110,8 @@
         canvas.width = 437;
         canvas.height = 727;
 
-        // --- SISTEMA DE SONS VIA SINTETIZADOR RETRO (Web Audio API) ---
+        // --- SISTEMA DE SONS RETRO ---
         let audioCtx = null;
-
         function initAudio() {
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -124,20 +121,15 @@
         function playJumpSound() {
             initAudio();
             if (!audioCtx) return;
-            
             let osc = audioCtx.createOscillator();
             let gain = audioCtx.createGain();
-            
             osc.type = 'square'; 
             osc.frequency.setValueAtTime(150, audioCtx.currentTime); 
             osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.12); 
-            
             gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
-            
             osc.connect(gain);
             gain.connect(audioCtx.destination);
-            
             osc.start();
             osc.stop(audioCtx.currentTime + 0.12);
         }
@@ -145,20 +137,15 @@
         function playHitSound() {
             initAudio();
             if (!audioCtx) return;
-            
             let osc = audioCtx.createOscillator();
             let gain = audioCtx.createGain();
-            
             osc.type = 'sawtooth'; 
             osc.frequency.setValueAtTime(300, audioCtx.currentTime);
             osc.frequency.linearRampToValueAtTime(60, audioCtx.currentTime + 0.3); 
-            
             gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-            
             osc.connect(gain);
             gain.connect(audioCtx.destination);
-            
             osc.start();
             osc.stop(audioCtx.currentTime + 0.3);
         }
@@ -167,22 +154,36 @@
         const birdImg = new Image();
         birdImg.src = 'kimi.png';
 
-        // --- VARIÁVEIS DO JOGO ---
-        let bird = { x: 50, y: 300, w: 44, h: 34, velocity: 0, gravity: 0.4, jump: -7.5 };
+        // --- VARIÁVEIS ---
+        let bird = { x: 70, y: 300, w: 44, h: 34, velocity: 0, gravity: 0.4, jump: -7.5 };
         let pipes = [];
-        let clouds = []; 
-        let sandGrains = []; 
         let score = 0;
+        let highScore = parseInt(localStorage.getItem('flapKimi_highScore')) || 0;
+        let isNewHighScore = false;
         let gameOver = false;
         let gameStarted = false;
-        let rankingChecked = false;
         let frameCount = 0;
         let baseSpeed = 2.5;
         let currentSpeed = baseSpeed;
+        let showRankingScreen = false; 
 
-        const pipeWidth = 65;
-        const pipeGap = 173; 
-        const pipeInterval = 110;
+        const pipeWidth = 76;
+        const pipeGap = 165; 
+        const pipeInterval = 120;
+
+        // --- PRÉDIOS DO FUNDO ---
+        let buildings = [];
+        function initBackground() {
+            buildings = [];
+            let currentX = 0;
+            while (currentX < canvas.width + 100) {
+                let w = Math.floor(Math.random() * 40) + 50;
+                let h = Math.floor(Math.random() * 120) + 120;
+                buildings.push({ x: currentX, w: w, h: h });
+                currentX += w - 5; 
+            }
+        }
+        initBackground();
 
         // --- SISTEMA DE DEBUFFS ---
         let activeDebuffs = [];
@@ -193,7 +194,7 @@
         let speedDebuffUsed = false;
         let lastTriggeredScore = 0;
         let isChaosMode = false;
-        let lastDebuffText = ""; // Evita atualizações desnecessárias de texto no DOM
+        let lastDebuffText = "";
 
         const debuffNames = {
             1: "GRAVIDADE AUMENTADA",
@@ -202,87 +203,111 @@
             4: "EPILEPSIA (Piscando)",
             5: "TELA PARALISADA"
         };
-
         let isFrozen = false;
 
-        function initClouds() {
-            clouds = [
-                { x: 50, y: 80, speed: 0.2, scale: 1.2 },
-                { x: 220, y: 140, speed: 0.15, scale: 0.9 },
-                { x: 380, y: 60, speed: 0.25, scale: 1.1 }
-            ];
-        }
-
-        function initSandGrains() {
-            sandGrains = [];
-            const groundY = canvas.height - 100;
-            for (let i = 0; i < 40; i++) { // Reduzido de 60 para 40 para otimizar mobile
-                sandGrains.push({
-                    x: Math.random() * canvas.width,
-                    y: groundY + Math.random() * 95,
-                    size: Math.random() * 2 + 1,
-                    color: Math.random() > 0.5 ? '#c2b978' : '#eee59e',
-                    chaosColor: Math.random() > 0.5 ? '#3b2b22' : '#241a14' // Cor pré-calculada do modo caos
-                });
-            }
-        }
-
-        initClouds();
-        initSandGrains();
-
-        // --- GESTÃO DO RANKING LOCAL (LOCALSTORAGE) ---
+        // --- GESTÃO DO RANKING LOCAL ---
         function getLocalRanking() {
             try {
                 const ranking = localStorage.getItem('flapKimi_ranking');
                 return ranking ? JSON.parse(ranking) : [];
-            } catch(e) {
-                return [];
-            }
+            } catch(e) { return []; }
         }
 
         function checkAndSaveRanking(finalScore) {
-            if (finalScore === 0) return; 
-            
+            if (finalScore > highScore) {
+                highScore = finalScore;
+                localStorage.setItem('flapKimi_highScore', highScore);
+                isNewHighScore = true;
+            }
+
             let ranking = getLocalRanking();
+            if (finalScore === 0) return;
             
             if (ranking.length < 5 || finalScore > ranking[ranking.length - 1].score) {
                 setTimeout(() => {
-                    let name = prompt("NOVO RECORDE LOCAL! Digite seu nome (Max 10 caracteres):");
-                    if (!name || name.trim() === "") name = "Anônimo";
+                    let name = prompt("NOVO RECORDE NO TOP 5! Digite seu nome (Max 10 letras):");
+                    if (!name || name.trim() === "") name = "KIMI FAN";
                     name = name.substring(0, 10).toUpperCase();
-
                     ranking.push({ name: name, score: finalScore });
                     ranking.sort((a, b) => b.score - a.score);
                     ranking = ranking.slice(0, 5);
-
-                    try {
-                        localStorage.setItem('flapKimi_ranking', JSON.stringify(ranking));
-                    } catch(e) {}
-                }, 150);
+                    try { localStorage.setItem('flapKimi_ranking', JSON.stringify(ranking)); } catch(e) {}
+                }, 400);
             }
         }
 
-        // --- EVENTOS (PC e Celular) ---
-        function handleAction() {
-            if (gameOver) {
-                if (rankingChecked) resetGame();
+        // --- SISTEMA DE CLIQUES SEGURO ---
+        function checkButtonClick(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
+            const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
+            
+            // Converte os cliques físicos da janela de forma precisa para a proporção interna (437x727)
+            const canvasX = (clientX - rect.left) * (canvas.width / rect.width);
+            const canvasY = (clientY - rect.top) * (canvas.height / rect.height);
+
+            // 1. Ações na tela de RANKING aberta
+            if (showRankingScreen) {
+                // Botão VOLTAR (X: 143 até 293 | Y: 510 até 560)
+                if (canvasX >= 143 && canvasX <= 293 && canvasY >= 510 && canvasY <= 560) {
+                    showRankingScreen = false;
+                }
                 return;
             }
-            
+
+            // Se o jogo não deu Game Over, ignora o resto dos botões
+            if (!gameOver) return;
+
+            // 2. Ações na tela de GAME OVER comum
+            // Clique no Botão PLAY (Esquerda | X: 60 até 190 | Y: 495 até 545)
+            if (canvasX >= 60 && canvasX <= 190 && canvasY >= 495 && canvasY <= 545) {
+                resetGame();
+            }
+
+            // Clique no Botão RANKING (Direita | X: 243 até 373 | Y: 495 até 545)
+            if (canvasX >= 243 && canvasX <= 373 && canvasY >= 495 && canvasY <= 545) {
+                showRankingScreen = true;
+            }
+        }
+
+        function handleAction(e) {
+            if (showRankingScreen) return;
+            if (gameOver) return; 
+
             if (!gameStarted) {
                 gameStarted = true;
                 initAudio();
             }
-            
             playJumpSound();
             bird.velocity = bird.jump;
         }
 
-        window.addEventListener('keydown', (e) => { if(e.code === 'Space') handleAction(); });
-        container.addEventListener('touchstart', (e) => { e.preventDefault(); handleAction(); }, {passive: false});
-        container.addEventListener('mousedown', handleAction);
+        // Eventos Globais de Entrada
+        window.addEventListener('keydown', (e) => { 
+            if(e.code === 'Space') {
+                e.preventDefault();
+                handleAction(); 
+            }
+        });
 
-        // --- LOGICA DO JOGO ---
+        container.addEventListener('touchstart', (e) => { 
+            e.preventDefault();
+            if (gameOver || showRankingScreen) { 
+                checkButtonClick(e); 
+            } else { 
+                handleAction(); 
+            }
+        }, {passive: false});
+
+        container.addEventListener('mousedown', (e) => {
+            if (gameOver || showRankingScreen) { 
+                checkButtonClick(e); 
+            } else { 
+                handleAction(); 
+            }
+        });
+
+        // --- LÓGICA DE UPDATE ---
         function applyDebuffEffects() {
             bird.gravity = 0.4;
             bird.jump = -7.5;
@@ -297,18 +322,9 @@
                 return;
             }
 
-            let timeLeftStr = "";
-            if (activeDebuffs.includes(3)) {
-                timeLeftStr = " (PERMANENTE)";
-            } else {
-                let secondsLeft = Math.ceil((debuffEndTime - Date.now()) / 1000);
-                if (secondsLeft < 0) secondsLeft = 0;
-                timeLeftStr = ` (${secondsLeft}s)`;
-            }
-
+            let timeLeftStr = activeDebuffs.includes(3) ? " (PERMANENTE)" : ` (${Math.ceil((debuffEndTime - Date.now()) / 1000)}s)`;
             let text = "DEBUFF: " + activeDebuffs.map(d => debuffNames[d]).join(" + ") + timeLeftStr;
             
-            // Só atualiza o elemento HTML se o texto realmente mudou (evita lag de reflow)
             if (text !== lastDebuffText) {
                 debuffAlert.innerText = text;
                 debuffAlert.style.display = 'block';
@@ -316,15 +332,10 @@
             }
 
             activeDebuffs.forEach(d => {
-                if (d === 1) {
-                    bird.gravity = 0.8; 
-                    bird.jump = -9.5;   
-                }
+                if (d === 1) { bird.gravity = 0.8; bird.jump = -9.5; }
                 if (d === 2) container.classList.add('shake');
                 if (d === 4) container.classList.add('flash');
-                if (d === 5) {
-                    if (frameCount % 12 < 4) isFrozen = true; 
-                }
+                if (d === 5) { if (frameCount % 12 < 4) isFrozen = true; }
             });
         }
 
@@ -333,7 +344,6 @@
                 lastTriggeredScore = score;
                 triggerNextDebuff();
             }
-            
             if (score === 300 && !speedDebuffUsed) {
                 speedDebuffUsed = true;
                 activateDebuff(3);
@@ -343,7 +353,6 @@
         function triggerNextDebuff() {
             clearTimeout(debuffTimer);
             activeDebuffs = [];
-
             if (rotationIndex < debuffRotation.length) {
                 activeDebuffs.push(debuffRotation[rotationIndex]);
                 rotationIndex++;
@@ -351,262 +360,311 @@
                 isChaosMode = true;
                 container.classList.add('hell-mode');
                 modeAlert.style.display = 'block';
-
                 let available = [1, 2, 4, 5];
                 let first = available.splice(Math.floor(Math.random() * available.length), 1)[0];
                 let second = available[Math.floor(Math.random() * available.length)];
                 activeDebuffs.push(first, second);
             }
-
             debuffEndTime = Date.now() + 10000;
-
-            debuffTimer = setTimeout(() => {
-                activeDebuffs = [];
-                applyDebuffEffects();
-            }, 10000);
+            debuffTimer = setTimeout(() => { activeDebuffs = []; applyDebuffEffects(); }, 10000);
         }
 
         function activateDebuff(id) {
-            if (id === 3) {
-                currentSpeed = baseSpeed * 1.5; 
-                activeDebuffs.push(3);
-            }
+            if (id === 3) { currentSpeed = baseSpeed * 1.5; activeDebuffs.push(3); }
         }
 
         function resetGame() {
-            bird.y = 300;
-            bird.velocity = 0;
-            bird.gravity = 0.4;
-            bird.jump = -7.5;
-            pipes = [];
-            score = 0;
-            lastTriggeredScore = 0;
-            currentSpeed = baseSpeed;
-            rotationIndex = 0;
-            speedDebuffUsed = false;
-            activeDebuffs = [];
-            gameOver = false;
-            gameStarted = false;
-            rankingChecked = false;
-            isChaosMode = false;
-            lastDebuffText = "";
+            bird.y = 300; bird.velocity = 0; bird.gravity = 0.4; bird.jump = -7.5;
+            pipes = []; score = 0; lastTriggeredScore = 0; currentSpeed = baseSpeed;
+            rotationIndex = 0; speedDebuffUsed = false; activeDebuffs = [];
+            gameOver = false; gameStarted = false; isChaosMode = false;
+            isNewHighScore = false; lastDebuffText = ""; showRankingScreen = false;
             container.classList.remove('hell-mode', 'shake', 'flash');
-            isFrozen = false;
-            debuffAlert.style.display = 'none';
-            modeAlert.style.display = 'none';
-            initClouds();
+            isFrozen = false; debuffAlert.style.display = 'none'; modeAlert.style.display = 'none';
         }
 
         function update() {
-            if (!gameStarted || gameOver) return;
-
+            if (!gameStarted || gameOver || showRankingScreen) return;
             checkDebuffTrigger();
             applyDebuffEffects();
-
-            if (isFrozen) return; // Se estiver congelado, pula a atualização da física, poupando CPU
+            if (isFrozen) return;
 
             bird.velocity += bird.gravity;
             bird.y += bird.velocity;
 
             if (bird.y + bird.h > canvas.height - 112 || bird.y < 0) {
                 if (!gameOver) {
-                    playHitSound();
-                    gameOver = true;
+                    playHitSound(); gameOver = true;
                     checkAndSaveRanking(score);
-                    rankingChecked = true;
                 }
             }
 
-            clouds.forEach(cloud => {
-                cloud.x -= isChaosMode ? cloud.speed * 2.5 : cloud.speed; 
-                if (cloud.x + 80 * cloud.scale < 0) {
-                    cloud.x = canvas.width + 20;
-                    cloud.y = 40 + Math.random() * 120;
-                }
-            });
-
             if (frameCount % pipeInterval === 0) {
-                let minHeight = 50;
+                let minHeight = 60;
                 let maxHeight = canvas.height - 112 - pipeGap - minHeight;
                 let topHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1) + minHeight);
-                pipes.push({
-                    x: canvas.width,
-                    top: topHeight,
-                    bottom: canvas.height - 112 - (topHeight + pipeGap),
-                    passed: false
-                });
+                pipes.push({ x: canvas.width, top: topHeight, bottom: canvas.height - 112 - (topHeight + pipeGap), passed: false });
             }
 
             for (let index = pipes.length - 1; index >= 0; index--) {
                 let pipe = pipes[index];
                 pipe.x -= currentSpeed;
 
-                if (
-                    bird.x + bird.w > pipe.x &&
-                    bird.x < pipe.x + pipeWidth &&
-                    (bird.y < pipe.top || bird.y + bird.h > canvas.height - 112 - pipe.bottom)
-                ) {
+                if (bird.x + bird.w > pipe.x && bird.x < pipe.x + pipeWidth &&
+                    (bird.y < pipe.top || bird.y + bird.h > canvas.height - 112 - pipe.bottom)) {
                     if (!gameOver) {
-                        playHitSound();
-                        gameOver = true;
+                        playHitSound(); gameOver = true;
                         checkAndSaveRanking(score);
-                        rankingChecked = true;
                     }
                 }
-
                 if (!pipe.passed && pipe.x + pipeWidth / 2 < bird.x) {
-                    pipe.passed = true;
-                    score++;
+                    pipe.passed = true; score++;
                 }
-
-                if (pipe.x + pipeWidth < 0) {
-                    pipes.splice(index, 1);
-                }
+                if (pipe.x + pipeWidth < 0) pipes.splice(index, 1);
             }
         }
 
-        function drawCloud(x, y, scale) {
-            ctx.fillStyle = isChaosMode ? 'rgba(120, 40, 50, 0.6)' : 'rgba(255, 255, 255, 0.75)';
-            ctx.beginPath();
-            ctx.rect(x, y, 50 * scale, 16 * scale);
-            ctx.rect(x + 10 * scale, y - 10 * scale, 30 * scale, 10 * scale);
-            ctx.rect(x + 5 * scale, y + 10 * scale, 40 * scale, 8 * scale);
-            ctx.fill();
+        // --- RENDERIZADORES VISUAIS RETRO ---
+        function drawRetroPipe(x, topY, bottomY, isTop) {
+            ctx.save();
+            let h = isTop ? topY : bottomY;
+            let startY = isTop ? 0 : canvas.height - 112 - bottomY;
+
+            let bodyColor = isChaosMode ? '#3a090f' : '#73bf2e';
+            let lightColor = isChaosMode ? '#75131e' : '#9dec3a';
+            let darkColor = isChaosMode ? '#1a0305' : '#538021';
+
+            let pipeBodyX = x + 4;
+            let pipeBodyW = pipeWidth - 8;
+            ctx.fillStyle = bodyColor;
+            ctx.fillRect(pipeBodyX, startY, pipeBodyW, h);
+            ctx.fillStyle = lightColor;
+            ctx.fillRect(pipeBodyX, startY, 6, h);
+            ctx.fillRect(pipeBodyX + 10, startY, 3, h);
+            ctx.fillStyle = darkColor;
+            ctx.fillRect(pipeBodyX + pipeBodyW - 8, startY, 8, h);
+
+            ctx.strokeStyle = '#543847';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(pipeBodyX, isTop ? -5 : startY, pipeBodyW, isTop ? h + 5 : h + 5);
+
+            let lipH = 26;
+            let lipY = isTop ? topY - lipH : startY;
+            ctx.fillStyle = bodyColor;
+            ctx.fillRect(x, lipY, pipeWidth, lipH);
+            ctx.fillStyle = lightColor;
+            ctx.fillRect(x + 2, lipY, 6, lipH);
+            ctx.fillRect(x + 12, lipY, 3, lipH);
+            ctx.fillStyle = darkColor;
+            ctx.fillRect(x + pipeWidth - 8, lipY, 8, lipH);
+            ctx.strokeRect(x, lipY, pipeWidth, lipH);
+
+            ctx.restore();
+        }
+
+        function drawMedal(x, y, currentScore) {
+            let mColor = '#cd7f32'; let mLight = '#e59866'; let mDark = '#873600'; let mName = "BRONZE";
+            if (currentScore >= 21 && currentScore <= 50) { mColor = '#bdc3c7'; mLight = '#ecf0f1'; mDark = '#7f8c8d'; mName = "PRATA"; }
+            else if (currentScore >= 51 && currentScore <= 200) { mColor = '#f1c40f'; mLight = '#f9e79f'; mDark = '#b7950b'; mName = "OURO"; }
+            else if (currentScore >= 201 && currentScore <= 300) { mColor = '#aed6f1'; mLight = '#eaf2f8'; mDark = '#2e86c1'; mName = "PLATINA"; }
+            else if (currentScore > 300) { mColor = '#d1f2eb'; mLight = '#ffffff'; mDark = '#73c6b6'; mName = "DIAMANTE"; }
+
+            if (currentScore === 0) return;
+
+            ctx.save();
+            ctx.fillStyle = '#543847';
+            ctx.beginPath(); ctx.arc(x, y, 24, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = mColor;
+            ctx.beginPath(); ctx.arc(x, y, 21, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = mLight;
+            ctx.beginPath(); ctx.arc(x - 5, y - 5, 12, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = mColor;
+            ctx.beginPath(); ctx.arc(x - 3, y - 3, 12, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = mDark;
+            ctx.beginPath(); ctx.arc(x + 5, y + 5, 8, 0, Math.PI * 2); ctx.fill();
+            
+            ctx.fillStyle = '#543847';
+            ctx.font = "bold 9px 'Courier New', sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText(mName, x, y + 36);
+            ctx.restore();
         }
 
         function draw() {
-            // Se estiver congelado por debuff, pula a renderização deste frame para evitar quebras visuais drásticas
-            if (isFrozen && gameStarted && !gameOver) return; 
-
             frameCount++;
 
-            ctx.fillStyle = isChaosMode ? '#4a0e17' : '#70c5ce';
+            // 1. Céu Fundo
+            ctx.fillStyle = isChaosMode ? '#300a10' : '#70c5ce';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            ctx.fillStyle = isChaosMode ? '#2b070c' : '#4ec0ca';
-            ctx.fillRect(0, canvas.height - 140, canvas.width, 28);
-
-            clouds.forEach(c => drawCloud(c.x, c.y, c.scale));
-
-            ctx.lineWidth = 3;
-            pipes.forEach(pipe => {
-                if (isChaosMode) {
-                    ctx.fillStyle = '#1f0307'; 
-                    ctx.strokeStyle = '#b81d24'; 
-                } else {
-                    ctx.fillStyle = '#73bf2e'; 
-                    ctx.strokeStyle = '#538021';
+            // 2. Prédios Distantes
+            ctx.fillStyle = isChaosMode ? '#1e0508' : '#c3ecf1';
+            buildings.forEach(b => {
+                ctx.fillRect(b.x, canvas.height - 112 - b.h, b.w, b.h);
+                ctx.fillStyle = isChaosMode ? '#420b12' : '#eafcff';
+                for (let wx = b.x + 8; wx < b.x + b.w - 8; wx += 14) {
+                    for (let wy = canvas.height - 112 - b.h + 12; wy < canvas.height - 112 - 10; wy += 20) {
+                        ctx.fillRect(wx, wy, 6, 9);
+                    }
                 }
-                ctx.fillRect(pipe.x, 0, pipeWidth, pipe.top);
-                ctx.strokeRect(pipe.x, -5, pipeWidth, pipe.top + 5);
-
-                ctx.fillRect(pipe.x, canvas.height - 112 - pipe.bottom, pipeWidth, pipe.bottom);
-                ctx.strokeRect(pipe.x, canvas.height - 112 - pipe.bottom, pipeWidth, pipe.bottom + 5);
+                ctx.fillStyle = isChaosMode ? '#1e0508' : '#c3ecf1';
             });
 
-            if (isChaosMode) {
-                ctx.fillStyle = '#5e483a'; 
-                ctx.fillRect(0, canvas.height - 112, canvas.width, 112);
-                ctx.fillStyle = '#210804'; 
-                ctx.fillRect(0, canvas.height - 112, canvas.width, 12);
-            } else {
-                ctx.fillStyle = '#ded895'; 
-                ctx.fillRect(0, canvas.height - 112, canvas.width, 112);
-                ctx.fillStyle = '#224d19'; 
-                ctx.fillRect(0, canvas.height - 112, canvas.width, 12);
+            // Nuvens
+            ctx.fillStyle = isChaosMode ? 'rgba(74, 19, 26, 0.5)' : 'rgba(255, 255, 255, 0.65)';
+            ctx.fillRect(0, canvas.height - 230, canvas.width, 40);
+            ctx.beginPath();
+            for(let i = 0; i < canvas.width + 40; i += 50) { ctx.arc(i, canvas.height - 230, 35, 0, Math.PI*2); }
+            ctx.fill();
+
+            // 3. Canos
+            pipes.forEach(pipe => {
+                drawRetroPipe(pipe.x, pipe.top, pipe.bottom, true);
+                drawRetroPipe(pipe.x, pipe.top, pipe.bottom, false);
+            });
+
+            // 4. Chão
+            ctx.fillStyle = isChaosMode ? '#3d2518' : '#ded895'; 
+            ctx.fillRect(0, canvas.height - 112, canvas.width, 112);
+            ctx.fillStyle = isChaosMode ? '#1a0805' : '#5ca432'; 
+            ctx.fillRect(0, canvas.height - 112, canvas.width, 14);
+            ctx.fillStyle = isChaosMode ? '#ff3333' : '#9dec3a'; 
+            for(let gx = 0; gx < canvas.width; gx += 12) {
+                ctx.fillRect(gx + (frameCount % 2 * 2), canvas.height - 112, 6, 6);
             }
+            ctx.fillStyle = '#543847';
+            ctx.fillRect(0, canvas.height - 114, canvas.width, 3);
 
-            // Otimizado: cores estáticas pré-calculadas evitam lag de processamento
-            sandGrains.forEach(grain => {
-                ctx.fillStyle = isChaosMode ? grain.chaosColor : grain.color;
-                ctx.fillRect(grain.x, grain.y, grain.size, grain.size);
-            });
-
+            // 5. Kimi
             ctx.save();
-            let rotation = Math.min(Math.PI / 4, Math.max(-Math.PI / 7, bird.velocity / 12));
+            let rotation = Math.min(Math.PI / 3, Math.max(-Math.PI / 7, bird.velocity / 10));
             ctx.translate(bird.x + bird.w/2, bird.y + bird.h/2);
             ctx.rotate(rotation);
-            
             if (birdImg.complete && birdImg.naturalWidth !== 0) {
                 ctx.drawImage(birdImg, -bird.w/2, -bird.h/2, bird.w, bird.h);
             } else {
                 ctx.fillStyle = isChaosMode ? '#ff3333' : '#f7dc6f';
                 ctx.fillRect(-bird.w/2, -bird.h/2, bird.w, bird.h);
-                ctx.fillStyle = '#e67e22';
-                ctx.fillRect(bird.w/4, -bird.h/6, 12, 10);
             }
             ctx.restore();
 
-            ctx.fillStyle = '#fff';
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 5;
-            ctx.font = "bold 40px 'Courier New', sans-serif";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "top";
-            
-            ctx.strokeText(score, canvas.width / 2, 20);
-            ctx.fillText(score, canvas.width / 2, 20);
-
-            if (!gameStarted) {
-                ctx.fillStyle = 'rgba(0,0,0,0.4)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#fff';
-                ctx.font = "bold 28px 'Courier New', sans-serif";
-                ctx.strokeText("FLAP KIMI", canvas.width / 2, canvas.height / 2 - 50);
-                ctx.fillText("FLAP KIMI", canvas.width / 2, canvas.height / 2 - 50);
-                ctx.font = "18px 'Courier New', sans-serif";
-                ctx.fillText("Toque para Iniciar", canvas.width / 2, canvas.height / 2 + 10);
+            // 6. Placar em jogo
+            if (!gameOver && gameStarted) {
+                ctx.fillStyle = '#fff'; ctx.strokeStyle = '#543847'; ctx.lineWidth = 6;
+                ctx.font = "bold 46px 'Courier New', sans-serif"; ctx.textAlign = "center";
+                ctx.strokeText(score, canvas.width / 2, 35); ctx.fillText(score, canvas.width / 2, 35);
             }
 
-            if (gameOver) {
-                ctx.fillStyle = 'rgba(0,0,0,0.6)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = isChaosMode ? '#ff3333' : '#fc5a3a';
-                ctx.font = "bold 34px 'Courier New', sans-serif";
-                ctx.strokeText("FIM DE JOGO", canvas.width / 2, canvas.height / 2 - 210);
-                ctx.fillText("FIM DE JOGO", canvas.width / 2, canvas.height / 2 - 210);
-                
-                ctx.fillStyle = '#fff';
+            // 7. Tela Inicial
+            if (!gameStarted && !showRankingScreen) {
+                ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#fff'; ctx.strokeStyle = '#543847'; ctx.lineWidth = 6;
+                ctx.font = "bold 36px 'Courier New', sans-serif"; ctx.textAlign = "center";
+                ctx.strokeText("FLAP KIMI", canvas.width / 2, canvas.height / 2 - 40);
+                ctx.fillText("FLAP KIMI", canvas.width / 2, canvas.height / 2 - 40);
                 ctx.font = "18px 'Courier New', sans-serif";
-                ctx.fillText(`Pontuação Final: ${score}`, canvas.width / 2, canvas.height / 2 - 160);
-                ctx.fillText("Toque para reiniciar", canvas.width / 2, canvas.height / 2 - 130);
+                ctx.strokeText("Toque para Voar", canvas.width / 2, canvas.height / 2 + 15);
+                ctx.fillText("Toque para Voar", canvas.width / 2, canvas.height / 2 + 15);
+            }
 
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-                ctx.strokeStyle = isChaosMode ? '#ff3333' : '#fff';
-                ctx.lineWidth = 2;
-                ctx.fillRect(canvas.width / 2 - 150, canvas.height / 2 - 80, 300, 240);
-                ctx.strokeRect(canvas.width / 2 - 150, canvas.height / 2 - 80, 300, 240);
+            // 8. TELA GAME OVER RETRO
+            if (gameOver && !showRankingScreen) {
+                ctx.fillStyle = '#fff'; ctx.strokeStyle = '#543847'; ctx.lineWidth = 7;
+                ctx.font = "bold 42px 'Courier New', sans-serif"; ctx.textAlign = "center";
+                ctx.strokeText("GAME OVER", canvas.width / 2, canvas.height / 2 - 160);
+                ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 160);
 
-                ctx.fillStyle = '#ffcc00';
-                ctx.font = "bold 18px 'Courier New', sans-serif";
-                ctx.fillText("TOP 5 RECORDES", canvas.width / 2, canvas.height / 2 - 65);
+                let boxX = canvas.width / 2 - 165;
+                let boxY = canvas.height / 2 - 110;
+                let boxW = 330;
+                let boxH = 175;
 
-                ctx.fillStyle = '#fff';
-                ctx.font = "16px 'Courier New', sans-serif";
-                
-                let ranking = getLocalRanking();
-                if (ranking.length === 0) {
-                    ctx.fillText("Nenhum recorde ainda!", canvas.width / 2, canvas.height / 2 + 20);
-                } else {
-                    ranking.forEach((player, i) => {
-                        let yPos = canvas.height / 2 - 25 + (i * 32);
-                        ctx.textAlign = "left";
-                        ctx.fillText(`${i + 1}. ${player.name}`, canvas.width / 2 - 120, yPos);
-                        ctx.textAlign = "right";
-                        ctx.fillText(`${player.score} pts`, canvas.width / 2 + 120, yPos);
-                    });
-                    ctx.textAlign = "center"; 
+                ctx.fillStyle = '#543847'; ctx.fillRect(boxX + 4, boxY + 4, boxW, boxH);
+                ctx.fillStyle = isChaosMode ? '#42161c' : '#d8ebd4'; ctx.fillRect(boxX, boxY, boxW, boxH);
+                ctx.strokeStyle = isChaosMode ? '#9e2b39' : '#76aa6d'; ctx.lineWidth = 4;
+                ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+                ctx.fillStyle = isChaosMode ? '#ff9e9e' : '#7ca873';
+                ctx.font = "bold 16px 'Courier New', sans-serif";
+                ctx.textAlign = "left"; ctx.fillText("MEDALHA", boxX + 25, boxY + 30);
+                ctx.textAlign = "right"; ctx.fillText("SCORE", boxX + boxW - 25, boxY + 30);
+                ctx.fillText("BEST", boxX + boxW - 25, boxY + 95);
+
+                ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#333333'; ctx.lineWidth = 4;
+                ctx.font = "bold 32px 'Courier New', sans-serif";
+                ctx.strokeText(score, boxX + boxW - 25, boxY + 60); ctx.fillText(score, boxX + boxW - 25, boxY + 60);
+                ctx.strokeText(highScore, boxX + boxW - 25, boxY + 125); ctx.fillText(highScore, boxX + boxW - 25, boxY + 125);
+
+                drawMedal(boxX + 65, boxY + 90, score);
+
+                if (isNewHighScore) {
+                    ctx.fillStyle = '#ff3333'; ctx.fillRect(boxX + boxW - 130, boxY + 102, 40, 18);
+                    ctx.fillStyle = '#ffffff'; ctx.font = "bold 11px sans-serif"; ctx.textAlign = "center";
+                    ctx.fillText("NEW", boxX + boxW - 110, boxY + 115);
                 }
+
+                // Botão PLAY
+                ctx.fillStyle = '#543847'; ctx.fillRect(64, 499, 130, 50);
+                ctx.fillStyle = '#22aa44'; ctx.fillRect(60, 495, 130, 50);
+                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.strokeRect(60, 495, 130, 50);
+                ctx.fillStyle = '#ffffff'; ctx.font = "bold 18px 'Courier New', sans-serif"; ctx.textAlign = "center";
+                ctx.fillText("PLAY", 125, 526);
+
+                // Botão RANKING
+                ctx.fillStyle = '#543847'; ctx.fillRect(247, 499, 130, 50);
+                ctx.fillStyle = '#f1c40f'; ctx.fillRect(243, 495, 130, 50);
+                ctx.strokeStyle = '#ffffff'; ctx.strokeRect(243, 495, 130, 50);
+                ctx.fillStyle = '#543847'; ctx.fillText("RANKING", 308, 526);
+            }
+
+            // 9. TELA DE LISTA DO RANKING OVERLAY
+            if (showRankingScreen) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#fff'; ctx.strokeStyle = '#543847'; ctx.lineWidth = 6;
+                ctx.font = "bold 34px 'Courier New', sans-serif"; ctx.textAlign = "center";
+                ctx.strokeText("TOP 5 RECORDES", canvas.width / 2, 140);
+                ctx.fillText("TOP 5 RECORDES", canvas.width / 2, 140);
+
+                let rBoxX = canvas.width / 2 - 175;
+                let rBoxY = 190;
+                let rBoxW = 350;
+                let rBoxH = 280;
+
+                ctx.fillStyle = '#543847'; ctx.fillRect(rBoxX + 4, rBoxY + 4, rBoxW, rBoxH);
+                ctx.fillStyle = '#d8ebd4'; ctx.fillRect(rBoxX, rBoxY, rBoxW, rBoxH);
+                ctx.strokeStyle = '#76aa6d'; ctx.lineWidth = 4; ctx.strokeRect(rBoxX, rBoxY, rBoxW, rBoxH);
+
+                let rankingList = getLocalRanking();
+                
+                if (rankingList.length === 0) {
+                    ctx.fillStyle = '#543847'; ctx.font = "bold 16px 'Courier New', sans-serif";
+                    ctx.fillText("Nenhum recorde ainda!", canvas.width / 2, rBoxY + 140);
+                } else {
+                    rankingList.forEach((player, i) => {
+                        let rowY = rBoxY + 45 + (i * 45);
+                        ctx.fillStyle = (i === 0) ? '#b7950b' : '#543847'; 
+                        ctx.font = "bold 20px 'Courier New', sans-serif";
+                        
+                        ctx.textAlign = "left";
+                        ctx.fillText(`${i + 1}. ${player.name}`, rBoxX + 25, rowY);
+                        
+                        ctx.textAlign = "right";
+                        ctx.fillText(`${player.score} pts`, rBoxX + rBoxW - 25, rowY);
+                    });
+                }
+
+                // Botão FECHAR / VOLTAR
+                ctx.fillStyle = '#543847'; ctx.fillRect(147, 514, 150, 50);
+                ctx.fillStyle = '#e74c3c'; ctx.fillRect(143, 510, 150, 50);
+                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.strokeRect(143, 510, 150, 50);
+                ctx.fillStyle = '#ffffff'; ctx.font = "bold 18px 'Courier New', sans-serif"; ctx.textAlign = "center";
+                ctx.fillText("VOLTAR", 218, 541);
             }
         }
 
-        function loop() {
-            update();
-            draw();
-            requestAnimationFrame(loop);
-        }
-
-        // Inicia o loop do jogo de forma limpa
+        function loop() { update(); draw(); requestAnimationFrame(loop); }
         requestAnimationFrame(loop);
     </script>
 </body>
