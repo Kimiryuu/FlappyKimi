@@ -111,12 +111,56 @@
         canvas.width = 437;
         canvas.height = 727;
 
-        // --- SONS INTEGRADOS (Não precisa de ficheiro mp3 externo) ---
-        const jumpSound = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAQA");
-        jumpSound.volume = 0.4;
+        // --- SISTEMA DE SONS VIA SINTETIZADOR RETRO (Web Audio API) ---
+        let audioCtx = null;
 
-        const hitSound = new Audio("data:audio/wav;base64,UklGRkYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAMf/xP/D/8L/");
-        hitSound.volume = 0.5;
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playJumpSound() {
+            initAudio();
+            if (!audioCtx) return;
+            
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            
+            osc.type = 'square'; 
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime); 
+            osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.12); 
+            
+            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.12);
+        }
+
+        function playHitSound() {
+            initAudio();
+            if (!audioCtx) return;
+            
+            let osc = audioCtx.createOscillator();
+            let gain = audioCtx.createGain();
+            
+            osc.type = 'sawtooth'; 
+            osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(60, audioCtx.currentTime + 0.3); 
+            
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.3);
+        }
 
         // --- IMAGENS ---
         const birdImg = new Image();
@@ -130,6 +174,7 @@
         let score = 0;
         let gameOver = false;
         let gameStarted = false;
+        let rankingChecked = false; // Garante que o prompt do ranking só abra uma vez por morte
         let frameCount = 0;
         let baseSpeed = 2.5;
         let currentSpeed = baseSpeed;
@@ -181,28 +226,50 @@
         initClouds();
         initSandGrains();
 
-        // --- FUNÇÃO PARA TOCAR O SOM SEM CONFLITO ---
-        function playSound(audio) {
-            audio.currentTime = 0;
-            audio.play().catch(() => {});
+        // --- GESTÃO DO RANKING LOCAL (LOCALSTORAGE) ---
+        function getLocalRanking() {
+            const ranking = localStorage.getItem('flapKimi_ranking');
+            return ranking ? JSON.parse(ranking) : [];
+        }
+
+        function checkAndSaveRanking(finalScore) {
+            if (finalScore === 0) return; // Evita salvar pontuação zero
+            
+            let ranking = getLocalRanking();
+            
+            // Verifica se a pontuação atual merece entrar no Top 5 (ou se a tabela está vazia)
+            if (ranking.length < 5 || finalScore > ranking[ranking.length - 1].score) {
+                // Pequeno delay para o prompt não travar a renderização do Fim de Jogo instantaneamente
+                setTimeout(() => {
+                    let name = prompt("NOVO RECORDE LOCAL! Digite seu nome (Max 10 caracteres):");
+                    if (!name || name.trim() === "") name = "Anônimo";
+                    name = name.substring(0, 10).toUpperCase();
+
+                    ranking.push({ name: name, score: finalScore });
+                    // Ordena do maior score para o menor
+                    ranking.sort((a, b) => b.score - a.score);
+                    // Mantém apenas os 5 melhores
+                    ranking = ranking.slice(0, 5);
+
+                    localStorage.setItem('flapKimi_ranking', JSON.stringify(ranking));
+                }, 150);
+            }
         }
 
         // --- EVENTOS (PC e Celular) ---
         function handleAction() {
             if (gameOver) {
-                resetGame();
+                // Só permite reiniciar se o fluxo do ranking daquela partida já rodou
+                if (rankingChecked) resetGame();
                 return;
             }
             
-            // Ativa o contexto de som no primeiro clique/toque exigido pelos browsers
             if (!gameStarted) {
                 gameStarted = true;
-                // Executa um play/pause rápido invisível para desbloquear o áudio
-                jumpSound.play().then(() => jumpSound.pause()).catch(() => {});
-                hitSound.play().then(() => hitSound.pause()).catch(() => {});
+                initAudio();
             }
             
-            playSound(jumpSound);
+            playJumpSound();
             bird.velocity = bird.jump;
         }
 
@@ -299,6 +366,7 @@
             activeDebuffs = [];
             gameOver = false;
             gameStarted = false;
+            rankingChecked = false;
             isChaosMode = false;
             container.classList.remove('hell-mode', 'shake', 'flash');
             isFrozen = false;
@@ -320,8 +388,12 @@
 
             // 1. Colisão com o teto ou chão
             if (bird.y + bird.h > canvas.height - 112 || bird.y < 0) {
-                if (!gameOver) playSound(hitSound); 
-                gameOver = true;
+                if (!gameOver) {
+                    playHitSound();
+                    gameOver = true;
+                    checkAndSaveRanking(score);
+                    rankingChecked = true;
+                }
             }
 
             clouds.forEach(cloud => {
@@ -353,8 +425,12 @@
                     bird.x < pipe.x + pipeWidth &&
                     (bird.y < pipe.top || bird.y + bird.h > canvas.height - 112 - pipe.bottom)
                 ) {
-                    if (!gameOver) playSound(hitSound); 
-                    gameOver = true;
+                    if (!gameOver) {
+                        playHitSound();
+                        gameOver = true;
+                        checkAndSaveRanking(score);
+                        rankingChecked = true;
+                    }
                 }
 
                 if (!pipe.passed && pipe.x + pipeWidth / 2 < bird.x) {
@@ -474,12 +550,41 @@
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
                 ctx.fillStyle = isChaosMode ? '#ff3333' : '#fc5a3a';
                 ctx.font = "bold 34px 'Courier New', sans-serif";
-                ctx.strokeText("FIM DE JOGO", canvas.width / 2, canvas.height / 2 - 50);
-                ctx.fillText("FIM DE JOGO", canvas.width / 2, canvas.height / 2 - 50);
+                ctx.strokeText("FIM DE JOGO", canvas.width / 2, canvas.height / 2 - 210);
+                ctx.fillText("FIM DE JOGO", canvas.width / 2, canvas.height / 2 - 210);
+                
                 ctx.fillStyle = '#fff';
                 ctx.font = "18px 'Courier New', sans-serif";
-                ctx.fillText(`Pontuação Final: ${score}`, canvas.width / 2, canvas.height / 2);
-                ctx.fillText("Toque para reiniciar", canvas.width / 2, canvas.height / 2 + 40);
+                ctx.fillText(`Pontuação Final: ${score}`, canvas.width / 2, canvas.height / 2 - 160);
+                ctx.fillText("Toque para reiniciar", canvas.width / 2, canvas.height / 2 - 130);
+
+                // --- DESENHAR QUADRO DE RANKING LOCAL ---
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.strokeStyle = isChaosMode ? '#ff3333' : '#fff';
+                ctx.lineWidth = 2;
+                ctx.fillRect(canvas.width / 2 - 150, canvas.height / 2 - 80, 300, 240);
+                ctx.strokeRect(canvas.width / 2 - 150, canvas.height / 2 - 80, 300, 240);
+
+                ctx.fillStyle = '#ffcc00';
+                ctx.font = "bold 18px 'Courier New', sans-serif";
+                ctx.fillText("TOP 5 RECORDES", canvas.width / 2, canvas.height / 2 - 65);
+
+                ctx.fillStyle = '#fff';
+                ctx.font = "16px 'Courier New', sans-serif";
+                
+                let ranking = getLocalRanking();
+                if (ranking.length === 0) {
+                    ctx.fillText("Nenhum recorde ainda!", canvas.width / 2, canvas.height / 2 + 20);
+                } else {
+                    ranking.forEach((player, i) => {
+                        let yPos = canvas.height / 2 - 25 + (i * 32);
+                        ctx.textAlign = "left";
+                        ctx.fillText(`${i + 1}. ${player.name}`, canvas.width / 2 - 120, yPos);
+                        ctx.textAlign = "right";
+                        ctx.fillText(`${player.score} pts`, canvas.width / 2 + 120, yPos);
+                    });
+                    ctx.textAlign = "center"; // Reseta o alinhamento
+                }
             }
         }
 
