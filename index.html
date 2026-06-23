@@ -174,7 +174,7 @@
         let score = 0;
         let gameOver = false;
         let gameStarted = false;
-        let rankingChecked = false; // Garante que o prompt do ranking só abra uma vez por morte
+        let rankingChecked = false;
         let frameCount = 0;
         let baseSpeed = 2.5;
         let currentSpeed = baseSpeed;
@@ -186,6 +186,7 @@
         // --- SISTEMA DE DEBUFFS ---
         let activeDebuffs = [];
         let debuffTimer = null;
+        let debuffEndTime = 0; // Armazena o timestamp de quando o debuff vai expirar
         let rotationIndex = 0; 
         const debuffRotation = [1, 2, 4, 5]; 
         let speedDebuffUsed = false;
@@ -193,11 +194,11 @@
         let isChaosMode = false;
 
         const debuffNames = {
-            1: "GRAVIDADE AUMENTADA!",
-            2: "TERREMOTO!",
-            3: "HIPER VELOCIDADE! (Permanente)",
-            4: "EPILEPSIA! (Piscando)",
-            5: "TELA PARALISADA!"
+            1: "GRAVIDADE AUMENTADA",
+            2: "TERREMOTO",
+            3: "HIPER VELOCIDADE",
+            4: "EPILEPSIA (Piscando)",
+            5: "TELA PARALISADA"
         };
 
         let isFrozen = false;
@@ -233,22 +234,18 @@
         }
 
         function checkAndSaveRanking(finalScore) {
-            if (finalScore === 0) return; // Evita salvar pontuação zero
+            if (finalScore === 0) return; 
             
             let ranking = getLocalRanking();
             
-            // Verifica se a pontuação atual merece entrar no Top 5 (ou se a tabela está vazia)
             if (ranking.length < 5 || finalScore > ranking[ranking.length - 1].score) {
-                // Pequeno delay para o prompt não travar a renderização do Fim de Jogo instantaneamente
                 setTimeout(() => {
                     let name = prompt("NOVO RECORDE LOCAL! Digite seu nome (Max 10 caracteres):");
                     if (!name || name.trim() === "") name = "Anônimo";
                     name = name.substring(0, 10).toUpperCase();
 
                     ranking.push({ name: name, score: finalScore });
-                    // Ordena do maior score para o menor
                     ranking.sort((a, b) => b.score - a.score);
-                    // Mantém apenas os 5 melhores
                     ranking = ranking.slice(0, 5);
 
                     localStorage.setItem('flapKimi_ranking', JSON.stringify(ranking));
@@ -259,7 +256,6 @@
         // --- EVENTOS (PC e Celular) ---
         function handleAction() {
             if (gameOver) {
-                // Só permite reiniciar se o fluxo do ranking daquela partida já rodou
                 if (rankingChecked) resetGame();
                 return;
             }
@@ -289,7 +285,17 @@
                 return;
             }
 
-            let text = "DEBUFF: " + activeDebuffs.map(d => debuffNames[d]).join(" + ");
+            // Calcula o tempo restante
+            let timeLeftStr = "";
+            if (activeDebuffs.includes(3)) {
+                timeLeftStr = " (PERMANENTE)";
+            } else {
+                let secondsLeft = Math.ceil((debuffEndTime - Date.now()) / 1000);
+                if (secondsLeft < 0) secondsLeft = 0;
+                timeLeftStr = ` (${secondsLeft}s)`;
+            }
+
+            let text = "DEBUFF: " + activeDebuffs.map(d => debuffNames[d]).join(" + ") + timeLeftStr;
             debuffAlert.innerText = text;
             debuffAlert.style.display = 'block';
 
@@ -336,6 +342,9 @@
                 activeDebuffs.push(first, second);
             }
 
+            // Define o fim do timer para daqui a 10 segundos (10000 ms)
+            debuffEndTime = Date.now() + 10000;
+
             debuffTimer = setTimeout(() => {
                 activeDebuffs = [];
                 applyDebuffEffects();
@@ -346,9 +355,7 @@
             if (id === 3) {
                 currentSpeed = baseSpeed * 1.5; 
                 activeDebuffs.push(3);
-                setTimeout(() => {
-                    activeDebuffs = activeDebuffs.filter(d => d !== 3);
-                }, 10000);
+                // Não há tempo de término para o debuff 3 pois ele é fixo/permanente
             }
         }
 
@@ -386,7 +393,6 @@
             bird.velocity += bird.gravity;
             bird.y += bird.velocity;
 
-            // 1. Colisão com o teto ou chão
             if (bird.y + bird.h > canvas.height - 112 || bird.y < 0) {
                 if (!gameOver) {
                     playHitSound();
@@ -419,7 +425,6 @@
             pipes.forEach((pipe, index) => {
                 pipe.x -= currentSpeed;
 
-                // 2. Colisão com os canos
                 if (
                     bird.x + bird.w > pipe.x &&
                     bird.x < pipe.x + pipeWidth &&
@@ -583,7 +588,7 @@
                         ctx.textAlign = "right";
                         ctx.fillText(`${player.score} pts`, canvas.width / 2 + 120, yPos);
                     });
-                    ctx.textAlign = "center"; // Reseta o alinhamento
+                    ctx.textAlign = "center"; 
                 }
             }
         }
