@@ -43,6 +43,7 @@
             display: block;
             width: 100%;
             height: 100%;
+            image-rendering: pixelated; /* Melhora performance de renderização em telas mobile */
         }
 
         /* --- ESTILOS DOS DEBUFFS (CSS) --- */
@@ -186,12 +187,13 @@
         // --- SISTEMA DE DEBUFFS ---
         let activeDebuffs = [];
         let debuffTimer = null;
-        let debuffEndTime = 0; // Armazena o timestamp de quando o debuff vai expirar
+        let debuffEndTime = 0; 
         let rotationIndex = 0; 
         const debuffRotation = [1, 2, 4, 5]; 
         let speedDebuffUsed = false;
         let lastTriggeredScore = 0;
         let isChaosMode = false;
+        let lastDebuffText = ""; // Evita atualizações desnecessárias de texto no DOM
 
         const debuffNames = {
             1: "GRAVIDADE AUMENTADA",
@@ -214,12 +216,13 @@
         function initSandGrains() {
             sandGrains = [];
             const groundY = canvas.height - 100;
-            for (let i = 0; i < 60; i++) {
+            for (let i = 0; i < 40; i++) { // Reduzido de 60 para 40 para otimizar mobile
                 sandGrains.push({
                     x: Math.random() * canvas.width,
                     y: groundY + Math.random() * 95,
                     size: Math.random() * 2 + 1,
-                    color: Math.random() > 0.5 ? '#c2b978' : '#eee59e'
+                    color: Math.random() > 0.5 ? '#c2b978' : '#eee59e',
+                    chaosColor: Math.random() > 0.5 ? '#3b2b22' : '#241a14' // Cor pré-calculada do modo caos
                 });
             }
         }
@@ -229,8 +232,12 @@
 
         // --- GESTÃO DO RANKING LOCAL (LOCALSTORAGE) ---
         function getLocalRanking() {
-            const ranking = localStorage.getItem('flapKimi_ranking');
-            return ranking ? JSON.parse(ranking) : [];
+            try {
+                const ranking = localStorage.getItem('flapKimi_ranking');
+                return ranking ? JSON.parse(ranking) : [];
+            } catch(e) {
+                return [];
+            }
         }
 
         function checkAndSaveRanking(finalScore) {
@@ -248,7 +255,9 @@
                     ranking.sort((a, b) => b.score - a.score);
                     ranking = ranking.slice(0, 5);
 
-                    localStorage.setItem('flapKimi_ranking', JSON.stringify(ranking));
+                    try {
+                        localStorage.setItem('flapKimi_ranking', JSON.stringify(ranking));
+                    } catch(e) {}
                 }, 150);
             }
         }
@@ -281,11 +290,13 @@
             isFrozen = false;
 
             if (activeDebuffs.length === 0) {
-                debuffAlert.style.display = 'none';
+                if (debuffAlert.style.display !== 'none') {
+                    debuffAlert.style.display = 'none';
+                    lastDebuffText = "";
+                }
                 return;
             }
 
-            // Calcula o tempo restante
             let timeLeftStr = "";
             if (activeDebuffs.includes(3)) {
                 timeLeftStr = " (PERMANENTE)";
@@ -296,8 +307,13 @@
             }
 
             let text = "DEBUFF: " + activeDebuffs.map(d => debuffNames[d]).join(" + ") + timeLeftStr;
-            debuffAlert.innerText = text;
-            debuffAlert.style.display = 'block';
+            
+            // Só atualiza o elemento HTML se o texto realmente mudou (evita lag de reflow)
+            if (text !== lastDebuffText) {
+                debuffAlert.innerText = text;
+                debuffAlert.style.display = 'block';
+                lastDebuffText = text;
+            }
 
             activeDebuffs.forEach(d => {
                 if (d === 1) {
@@ -342,7 +358,6 @@
                 activeDebuffs.push(first, second);
             }
 
-            // Define o fim do timer para daqui a 10 segundos (10000 ms)
             debuffEndTime = Date.now() + 10000;
 
             debuffTimer = setTimeout(() => {
@@ -355,7 +370,6 @@
             if (id === 3) {
                 currentSpeed = baseSpeed * 1.5; 
                 activeDebuffs.push(3);
-                // Não há tempo de término para o debuff 3 pois ele é fixo/permanente
             }
         }
 
@@ -375,6 +389,7 @@
             gameStarted = false;
             rankingChecked = false;
             isChaosMode = false;
+            lastDebuffText = "";
             container.classList.remove('hell-mode', 'shake', 'flash');
             isFrozen = false;
             debuffAlert.style.display = 'none';
@@ -388,7 +403,7 @@
             checkDebuffTrigger();
             applyDebuffEffects();
 
-            if (isFrozen) return; 
+            if (isFrozen) return; // Se estiver congelado, pula a atualização da física, poupando CPU
 
             bird.velocity += bird.gravity;
             bird.y += bird.velocity;
@@ -422,7 +437,8 @@
                 });
             }
 
-            pipes.forEach((pipe, index) => {
+            for (let index = pipes.length - 1; index >= 0; index--) {
+                let pipe = pipes[index];
                 pipe.x -= currentSpeed;
 
                 if (
@@ -446,7 +462,7 @@
                 if (pipe.x + pipeWidth < 0) {
                     pipes.splice(index, 1);
                 }
-            });
+            }
         }
 
         function drawCloud(x, y, scale) {
@@ -459,27 +475,20 @@
         }
 
         function draw() {
-            if (isFrozen) return; 
+            // Se estiver congelado por debuff, pula a renderização deste frame para evitar quebras visuais drásticas
+            if (isFrozen && gameStarted && !gameOver) return; 
 
             frameCount++;
 
-            if (isChaosMode) {
-                ctx.fillStyle = '#4a0e17'; 
-            } else {
-                ctx.fillStyle = '#70c5ce'; 
-            }
+            ctx.fillStyle = isChaosMode ? '#4a0e17' : '#70c5ce';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            if (isChaosMode) {
-                ctx.fillStyle = '#2b070c';
-                ctx.fillRect(0, canvas.height - 140, canvas.width, 28);
-            } else {
-                ctx.fillStyle = '#4ec0ca';
-                ctx.fillRect(0, canvas.height - 140, canvas.width, 28);
-            }
+            ctx.fillStyle = isChaosMode ? '#2b070c' : '#4ec0ca';
+            ctx.fillRect(0, canvas.height - 140, canvas.width, 28);
 
             clouds.forEach(c => drawCloud(c.x, c.y, c.scale));
 
+            ctx.lineWidth = 3;
             pipes.forEach(pipe => {
                 if (isChaosMode) {
                     ctx.fillStyle = '#1f0307'; 
@@ -488,8 +497,6 @@
                     ctx.fillStyle = '#73bf2e'; 
                     ctx.strokeStyle = '#538021';
                 }
-                ctx.lineWidth = 3;
-
                 ctx.fillRect(pipe.x, 0, pipeWidth, pipe.top);
                 ctx.strokeRect(pipe.x, -5, pipeWidth, pipe.top + 5);
 
@@ -509,8 +516,9 @@
                 ctx.fillRect(0, canvas.height - 112, canvas.width, 12);
             }
 
+            // Otimizado: cores estáticas pré-calculadas evitam lag de processamento
             sandGrains.forEach(grain => {
-                ctx.fillStyle = isChaosMode ? (Math.random() > 0.5 ? '#3b2b22' : '#241a14') : grain.color;
+                ctx.fillStyle = isChaosMode ? grain.chaosColor : grain.color;
                 ctx.fillRect(grain.x, grain.y, grain.size, grain.size);
             });
 
@@ -563,7 +571,6 @@
                 ctx.fillText(`Pontuação Final: ${score}`, canvas.width / 2, canvas.height / 2 - 160);
                 ctx.fillText("Toque para reiniciar", canvas.width / 2, canvas.height / 2 - 130);
 
-                // --- DESENHAR QUADRO DE RANKING LOCAL ---
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
                 ctx.strokeStyle = isChaosMode ? '#ff3333' : '#fff';
                 ctx.lineWidth = 2;
@@ -599,7 +606,8 @@
             requestAnimationFrame(loop);
         }
 
-        loop();
+        // Inicia o loop do jogo de forma limpa
+        requestAnimationFrame(loop);
     </script>
 </body>
 </html>
